@@ -1,0 +1,307 @@
+---
+title: "TAREA 2 MODULO VI"
+author: "Jonathan Vargas"
+date: "2025-08-31"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Cargamos las librerias que vamos a utilizar
+
+```{r}
+library(tidymodels)
+library(tidyverse)
+library(tidyclust)
+library(factoextra)
+library(FactoMineR)
+library(cluster)
+library(mlr)
+library(GGally)
+library(ClusterR)
+library(vegan)
+library(NbClust)
+library(gridExtra)
+library(grid)
+library(lattice)
+library(mice)
+require(igraph)
+```
+Cargamos nuestras bases de datos.
+
+```{r}
+df<-read.csv("C:/Users/Jonat/Downloads/water_potability.csv")
+
+df %>% dim()
+
+df %>% glimpse()
+
+df %>% head()
+
+df %>% summary()
+```
+
+Veamos los datos faltantes 
+```{r}
+colSums(is.na(df))
+```
+Imputamos datos ya que tenemos datos faltantes:
+
+```{r}
+imputed_data <- mice(df, m = 5, method = 'pmm', maxit = 5, seed = 123)
+```
+```{r message=FALSE, warning=FALSE}
+df <- complete(imputed_data, 1)
+```
+
+```{r}
+colSums(is.na(df))
+```
+Convertimos nuestra variable de salida en este caso es "Potability" a Factor ya que es de tipo int
+
+```{r}
+df$Potability <- as.factor(df$Potability)
+```
+
+```{r}
+table(df$Potability)
+```
+
+Hacemos un gráfico de nuestra variable Potability 
+```{r}
+df %>% glimpse()
+
+df %>%
+  group_by(Potability) %>%
+  summarise (n = n()) %>%
+  mutate(prop = n / sum(n)) %>%
+ggplot(aes(df,x = Potability, y = n)) +
+    geom_col(fill = c("#CC0033", "#e319dc")) +
+    geom_text(aes(label = paste0(n, " | ", signif(n / nrow(df) * 100, digits = 4), '%')), nudge_y = 10) + ggtitle("Porcentajes de resultados de biopsia")
+    theme_gray()
+```
+
+Vamos aplicar los clusters vistos en clases
+
+Primero comenzamos con los **Métodos Jerarquicos** 
+
+Para eso vamos a eliminar nuestra variable de salida en este caso la variable Potability
+
+```{r}
+df1<- df %>% dplyr::select(-Potability)
+
+head(df1)
+```
+
+Vamos a calcular la distancia en este caso como tenemos que nuestra varaibles son continuas utilizaremos la distancia **Euclidiana**. Cabe mencionar que también vamos a estandarizar los datos para que no tengamos algún sesgo con las variables que tengan una diferente dimensión a las demás.
+
+```{r}
+dist_df <- dist(scale(df1), method = "euclidean")
+```
+
+Calculamos nuestras ligas:
+
+```{r}
+hc_ave <- hclust(dist_df, method = "average")
+hc_single<-hclust(dist_df, method = "single")
+hc_comp<-hclust(dist_df, method = "complete")
+hc_ward<-hclust(dist_df, method = "ward.D")
+hc_ward2<-hclust(dist_df, method = "ward.D2")
+```
+
+Sabemos que las mejores ligas son las ward.
+
+Calculamos la distancia cophenetic y calculamos la correlación que tienen las ditancias 
+
+```{r}
+d_ave <- cophenetic(hc_ave)
+d_single <- cophenetic(hc_single)
+d_comp<- cophenetic(hc_comp)
+d_ward<- cophenetic(hc_ward)
+d_ward2<-cophenetic(hc_ward2)
+
+cbind(cor(dist_df,d_ave),cor(dist_df,d_single),cor(dist_df,d_comp),cor(dist_df,d_ward),cor(dist_df,d_ward2))
+```
+
+Podemos obeservar que las mejores ligas que mantienen la distancia son la promedio y la simple
+
+Vamos a graficarlas
+
+```{r}
+plot(hc_ave)
+```
+```{r}
+plot(hc_single)
+```
+
+Podemos observar que con los dendogramas con las ligas single y average no podemos afirmar cuantos grupos podemos tener de toda nuestra base de datos haciendo algún corte.
+
+Unas ligas que generalmente funciona "mejor" son las de ward
+
+```{r}
+plot(hc_ward)
+```
+
+Podemos notar que en la gráfica anterior que si hacemos un corte a la altura 215 aproximadamente tenemos un total de 4 clusters y si hacemos un corte a una altura de 250 tenemos 3 clusters.
+
+A continuación veamos la grafica de Ward 2
+
+```{r}
+plot(hc_ward2)
+```
+
+Podemos observar del dendograma anterior que si hacemos un corte con altura 45 tenemos 2 clusters, pero si hacemos un corte con una altura de 40 tenemos 4 clusters
+
+Con los dendogramas anteriores no podemos hacer una afirmación de cuantos cluster podemos tener en nuestra base de datos
+
+```{r}
+
+fviz_dend(hc_ward, cex = 0.65, k = 3, color_labels_by_k = FALSE, rect = TRUE, rect_fill = TRUE, k_colors = "jco", rect_border = "jco", show_labels = F, main="Cluster: Liga ward dendrograma (3 grupos)")
+
+fviz_dend(hc_ward2, cex = 0.65, k = 3, color_labels_by_k = FALSE, rect = TRUE, rect_fill = TRUE, k_colors = "jco", rect_border = "jco", show_labels = F, main="Cluster: Liga ward2 dendrograma (3 grupos)")
+
+fviz_dend(hc_ward, cex = 0.8, k = 3,k_colors =c("#FC4E07","#a8a632", "#00AFBB") ,type = "rectangle")
+
+fviz_dend(hc_ward, cex = 0.8, k = 3,k_colors =c("#FC4E07","#a8a632", "#00AFBB") ,type = "circular")
+
+fviz_dend(hc_ward, cex = 0.8, k = 3,k_colors =c("#FC4E07","#a8a632", "#00AFBB") ,type = "phylogenic")
+
+fviz_dend(hc_ward, cex = 0.8, k = 3,k_colors =c("#FC4E07","#a8a632", "#00AFBB") ,type = "phylogenic", repel=TRUE)
+
+```
+
+Hasta el momento aún no podemos afirmar que tengamos algú númeor de clusters fijo.
+
+Trabajemos con otro método aglomerativo llamado agnes, pero también vamos a escalar nuestros datos.
+
+```{r}
+df1<-as.data.frame(scale(df1))
+
+ac_metric <- list(
+  complete_ac = agnes(df1, metric = "euclidean", method = "complete")$ac,
+  average_ac = agnes(df1, metric = "euclidean", method = "average")$ac,
+  single_ac = agnes(df1, metric = "euclidean", method = "single")$ac,
+  ward_ac = agnes(df1, metric = "euclidean", method = "ward")$ac
+)
+
+ac_metric
+```
+
+```{r}
+df1
+summary(df1) # Verificar que nuestros datos esten escalados
+```
+
+Podemos observar que la mejor liga con el método agnes es la Ward
+
+Veamos su gráfica
+
+```{r}
+plot(agnes(df1, metric = "euclidean", method = "ward"))
+```
+
+Podemos observar que tenemos un comprtamiento similar a las dos ligas Ward anteriores. Por lo que podemos decir que si hacemos un corte con altura alrededor de 40 tenemos tres clusters
+
+Veamos con otro método divisivo llamado DIANA
+
+```{r}
+plot(diana(df1, metric = "euclidean"))
+```
+
+Podemos observar que con DIANA tenemos dos clusters si hacemos un corte alrededor de altura 11
+
+Con los métodos jerarquicos podemos afirmar que tenemos entre 2 y 3 clusters
+
+Ahora hagamos el análisis pero con tidymodels usando la liga promedio
+
+```{r}
+hc_spec <- hier_clust(
+  linkage_method = "average" )%>%   ###Aquí pueden poner cualquiera de las ligas
+  set_engine("stats")
+
+hc_spec
+
+hclust_fit <- tidyclust::fit(hc_spec, ~., df1)
+
+hclust_fit 
+
+hclust_fit$fit %>% plot()
+
+```
+Observemos que no es claro
+
+Hagamos el analísis pero sin declarar alguna liga
+
+```{r}
+hclust_spec <- hier_clust() %>%
+               set_engine("stats")
+
+hclust_fit1 <- tidyclust::fit(hclust_spec, ~., df1)
+
+hclust_fit1 %>%
+  extract_centroids(num_clusters = 3)%>%print(Inf)
+
+hclust_fit1$fit %>% plot()
+
+```
+Observemos que tampoco es tan claro como las ligas Ward, en este caso la gráfica anterior utiliza la liga completa
+
+Veamos las gráficas pero ahora declarando las ligas que usamos anteriormente
+
+**Liga Completa**
+```{r}
+res_hclust_complete <- hier_clust(linkage_method = "complete") %>%
+  tidyclust::fit(~., data = df1)
+```
+
+
+```{r}
+res_hclust_complete$fit %>% plot()
+```
+
+
+**Liga Promedio**
+
+```{r}
+res_hclust_average <- hier_clust(linkage_method = "average") %>%
+  tidyclust::fit(~., data = df1)
+
+res_hclust_average$fit %>% plot()
+```
+
+**Liga Simple**
+
+```{r}
+res_hclust_single <- hier_clust(linkage_method = "single") %>%
+  tidyclust::fit(~., data = df1)
+
+res_hclust_single$fit %>% plot()
+```
+
+**Liga Ward D**
+
+```{r}
+res_hclust_ward <- hier_clust(linkage_method = "ward.D") %>%
+  tidyclust::fit(~., data = df1)
+
+res_hclust_ward$fit %>% plot()
+```
+
+**Liga Ward D2**
+
+
+```{r}
+res_hclust_ward2 <- hier_clust(linkage_method = "ward.D2") %>%
+  tidyclust::fit(~., data = df1)
+
+res_hclust_ward2$fit %>% plot()
+
+```
+
+Podemos observar que usando tidymodels con las ligas Ward son las que nos dan más claridad de cuántos clusters podemos tener en neustros datos en este caso tenemos de 2 a 3 dependiendo a que altura cortemos.
+
+**K-MEANS**
+
+
