@@ -27,12 +27,13 @@ library(gridExtra)
 library(grid)
 library(lattice)
 library(mice)
+library(dbscan)
 require(igraph)
 ```
 Cargamos nuestras bases de datos.
 
 ```{r}
-df<-read.csv("C:/Users/Jonat/Downloads/water_potability.csv")
+df<-read.csv("./water_potability.csv")
 
 df %>% dim()
 
@@ -79,11 +80,31 @@ df %>%
   mutate(prop = n / sum(n)) %>%
 ggplot(aes(df,x = Potability, y = n)) +
     geom_col(fill = c("#CC0033", "#e319dc")) +
-    geom_text(aes(label = paste0(n, " | ", signif(n / nrow(df) * 100, digits = 4), '%')), nudge_y = 10) + ggtitle("Porcentajes de resultados de biopsia")
+    geom_text(aes(label = paste0(n, " | ", signif(n / nrow(df) * 100, digits = 4), '%')), nudge_y = 10) + ggtitle("Porcentajes de resultados de biopsia") +
     theme_gray()
 ```
+```{r}
+ggpairs(df, mapping = aes(fill = Potability, color = Potability, alpha = 0.5),columns = seq(1,9), lower = "blank", upper = "blank") +
+scale_fill_manual(values = c("0" = "#ec7d15", "1" = "#10b9ec")) + labs(title = "Comparación por gráficos de dispersión") + 
+theme(
+  axis.text.x = element_text(size = 4),
+  axis.text.y = element_text(size = 4)
+)
+```
 
+```{r}
+cor1_data<-cor(df[,-10],method="spearman")
+
+ggcorrplot::ggcorrplot(corr = cor1_data,
+                       type = "lower", 
+                       show.diag = TRUE,
+                       lab = TRUE, 
+                       lab_size = 3) +
+                       labs(title = "Correlación entre las variables")
+```
 Vamos aplicar los clusters vistos en clases
+
+## Métodos Jerárquicos
 
 Primero comenzamos con los **Métodos Jerarquicos** 
 
@@ -109,6 +130,7 @@ hc_single<-hclust(dist_df, method = "single")
 hc_comp<-hclust(dist_df, method = "complete")
 hc_ward<-hclust(dist_df, method = "ward.D")
 hc_ward2<-hclust(dist_df, method = "ward.D2")
+hc_centroid <- hclust(dist_df, method = "centroid")
 ```
 
 Sabemos que las mejores ligas son las ward.
@@ -121,8 +143,9 @@ d_single <- cophenetic(hc_single)
 d_comp<- cophenetic(hc_comp)
 d_ward<- cophenetic(hc_ward)
 d_ward2<-cophenetic(hc_ward2)
+d_centroid<-cophenetic(hc_centroid)
 
-cbind(cor(dist_df,d_ave),cor(dist_df,d_single),cor(dist_df,d_comp),cor(dist_df,d_ward),cor(dist_df,d_ward2))
+cbind(cor(dist_df,d_ave),cor(dist_df,d_single),cor(dist_df,d_comp),cor(dist_df,d_ward),cor(dist_df,d_ward2), cor(dist_df, d_centroid))
 ```
 
 Podemos obeservar que las mejores ligas que mantienen la distancia son la promedio y la simple
@@ -136,6 +159,9 @@ plot(hc_ave)
 plot(hc_single)
 ```
 
+```{r}
+plot(hc_centroid)
+```
 Podemos observar que con los dendogramas con las ligas single y average no podemos afirmar cuantos grupos podemos tener de toda nuestra base de datos haciendo algún corte.
 
 Unas ligas que generalmente funciona "mejor" son las de ward
@@ -174,6 +200,8 @@ fviz_dend(hc_ward, cex = 0.8, k = 3,k_colors =c("#FC4E07","#a8a632", "#00AFBB") 
 
 Hasta el momento aún no podemos afirmar que tengamos algú númeor de clusters fijo.
 
+### AGNES
+
 Trabajemos con otro método aglomerativo llamado agnes, pero también vamos a escalar nuestros datos.
 
 ```{r}
@@ -190,7 +218,7 @@ ac_metric
 ```
 
 ```{r}
-df1
+df1 |> head()
 summary(df1) # Verificar que nuestros datos esten escalados
 ```
 
@@ -203,6 +231,8 @@ plot(agnes(df1, metric = "euclidean", method = "ward"))
 ```
 
 Podemos observar que tenemos un comprtamiento similar a las dos ligas Ward anteriores. Por lo que podemos decir que si hacemos un corte con altura alrededor de 40 tenemos tres clusters
+
+### DIANA
 
 Veamos con otro método divisivo llamado DIANA
 
@@ -302,6 +332,109 @@ res_hclust_ward2$fit %>% plot()
 
 Podemos observar que usando tidymodels con las ligas Ward son las que nos dan más claridad de cuántos clusters podemos tener en neustros datos en este caso tenemos de 2 a 3 dependiendo a que altura cortemos.
 
-**K-MEANS**
+## Métodos no Jerárquicos
+
+### K-MEANS
+
+Primero veremos el estadístico GAP para ver el número de clusters que puede ser adecuado.
+
+```{r}
+fviz_nbclust(df1, kmeans, method = "gap_stat")+labs(x ="Número de clusters")+labs(y="GAP")+labs(title = "Número óptimo de clusters")
+```
+
+Con K-Means indica que el número óptimo de clusters es 1, es decir que no encuentra más de un cluster como óptimo.
+
+(Aún así) Para el método de K-Means probaremos con valores de K de 2, 3 y 4, y mediante validación cruzada escogeremos el valor de K óptimo.
+
+```{r}
+dfTask <- makeClusterTask(data = df1)
+listLearners("cluster")$class
+
+kMeans <- makeLearner("cluster.kmeans",par.vals = list(iter.max = 2500, nstart = 25))
+
+kMeansParamSpace <- makeParamSet(
+makeDiscreteParam("centers", values = c(2:4)),
+makeDiscreteParam("algorithm",
+values = c("Hartigan-Wong", "Lloyd", "MacQueen")))
+gridSearch <- makeTuneControlGrid()
+kFold <- makeResampleDesc("CV", iters = 25)
+
+set.seed(123)
+
+tunedK <- tuneParams(kMeans, task = dfTask,
+resampling = kFold,
+par.set = kMeansParamSpace,
+control = gridSearch,
+measures = list(db, G1))
+```
+
+```{r}
+set.seed(123)
+kMeansTuningData <- generateHyperParsEffectData(tunedK)
+kMeansTuningData$data
+gatheredTuningData <- gather(kMeansTuningData$data,
+key = "Metric",
+value = "Value",
+c(-centers, -iteration, -algorithm))
+
+ggplot(gatheredTuningData, aes(centers, Value, col = algorithm)) +
+facet_wrap(~ Metric, scales = "free_y") +
+geom_line() +
+geom_point() +
+theme_bw()
+```
+
+En la gráfica anterior vemos que el mejor modelo es con K = 4.
+
+```{r}
+set.seed(123)
+tunedKMeans <- setHyperPars(kMeans, par.vals = tunedK$x)
+tunedKMeansModel <- train(tunedKMeans, dfTask)
+kMeansModelData <- getLearnerModel(tunedKMeansModel)
+kMeansModelData$iter
+
+tunedKMeans
+
+df_clus <- df %>% mutate(kMeansCluster = as.factor(kMeansModelData$cluster))
+table(df_clus$kMeansCluster)
+
+ggpairs(df_clus, aes(col = kMeansCluster),upper = list(continuous = "density")) +
+theme_bw()
+```
+
+En los gráficos anteriores podemos ver que no se percibe una buena separación de los clusters. Además, tampoco se ve que los clusters estén relacionados con la potabilidad del agua, pues están casi igualmente distribuidos en ambos grupos de potabilidad.
 
 
+### DBSCAN
+
+Para el parámetro del número de vecinos cercanos tomaremos 10 por tener 9 variables del modelo.
+```{r}
+kNNdistplot(df1, k =10)
+abline(h=c(2, 3),lty=2,col="blue")
+```
+
+En la gráfica anterior podemos ver que un intervalo donde podemos ver el punto de inflexión en las distancias es entre 2 y 3.
+
+Si calculamos los cuantiles, vemos que el 95% de las distancias quedamos debajo de 2.71. Por lo que un valor adecuado de epsilón podría ser 3.
+
+```{r}
+quantile(kNNdist(df1, k = 10), c(0.70,0.75, 0.8, 0.9, 0.95, 0.99, 0.995, 0.999))
+```
+
+```{r}
+df_clus <- dbscan(df, eps = 3, minPts = 10)
+df_clus
+```
+
+Los resultados indican 10 observaciones de ruido y el resto pertenece a un solo grupo.
+
+### HDBSCAN
+
+```{r}
+hdb <- hdbscan(df1, minPts = 10) #con minPts = 20 también solo encuentra un grupo
+unique(hdb$cluster)
+
+# datos_hdbscan <- data.frame(df, cluster = as.factor(hdb$cluster))
+```
+
+Usando HDBSCAN tampoco encuentra más de un solo grupo.
