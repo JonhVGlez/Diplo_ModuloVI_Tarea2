@@ -1,13 +1,23 @@
 ---
-title: "TAREA 2 MODULO VI"
-author: "Jonathan Vargas"
-date: "2025-08-31"
-output: html_document
+output: pdf_document
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
+
+**Integrantes:**
+
+* Luis Rodrigo Santamaría Rodríguez
+* Jonathan Vargas González
+* Marisol Estrada Téllez
+
+En esta tarea se abordará el análisis de una base de datos relacionada con la calidad del agua, la cual contiene diversas variables físico-químicas que permiten evaluar su potabilidad. El objetivo principal es aplicar técnicas de agrupamiento (clustering) para identificar patrones ocultos y posibles grupos naturales dentro de los datos, sin necesidad de una variable de salida en este caso nuestra variable llamada "Potability".
+
+La base de datos utilizada incluye atributos como pH, dureza, sólidos disueltos, cloraminas, sulfatos, conductividad eléctrica, carbono orgánico, trihalometanos y turbidez. Cada registro representa una muestra de agua, y aunque se cuenta con la variable Potability como referencia, el enfoque será completamente no supervisado.
+
+Para lograr una segmentación significativa, se emplearán métodos de reducción de dimensionalidad como PCA, t-SNE y UMAP (los cuáles fueron analizados en la tarea 1), que facilitarán la visualización y comprensión de la estructura interna de los datos. Posteriormente, se aplicarán algoritmos de clustering como K-means, DBSCAN, HDBSCAN, etc **(Agregar los que falten)**, con el fin de descubrir agrupamientos que puedan aportar valor en la clasificación de la calidad del agua.
+
 
 Cargamos las librerias que vamos a utilizar
 
@@ -30,6 +40,7 @@ library(mice)
 library(dbscan)
 require(igraph)
 ```
+
 Cargamos nuestras bases de datos.
 
 ```{r}
@@ -48,7 +59,7 @@ Veamos los datos faltantes
 ```{r}
 colSums(is.na(df))
 ```
-Imputamos datos ya que tenemos datos faltantes:
+Imputamos datos ya que, tenemos datos faltantes:
 
 ```{r}
 imputed_data <- mice(df, m = 5, method = 'pmm', maxit = 5, seed = 123)
@@ -60,7 +71,7 @@ df <- complete(imputed_data, 1)
 ```{r}
 colSums(is.na(df))
 ```
-Convertimos nuestra variable de salida en este caso es "Potability" a Factor ya que es de tipo int
+Convertimos nuestra variable de salida en este caso es "Potability" a Factor ya que, es de tipo int
 
 ```{r}
 df$Potability <- as.factor(df$Potability)
@@ -70,7 +81,7 @@ df$Potability <- as.factor(df$Potability)
 table(df$Potability)
 ```
 
-Hacemos un gráfico de nuestra variable Potability 
+Hacemos un gráfico de nuestra variable "Potability" 
 ```{r}
 df %>% glimpse()
 
@@ -108,7 +119,7 @@ Vamos aplicar los clusters vistos en clases
 
 Primero comenzamos con los **Métodos Jerarquicos** 
 
-Para eso vamos a eliminar nuestra variable de salida en este caso la variable Potability
+Para eso vamos a eliminar nuestra variable de salida en este caso la variable "Potability"
 
 ```{r}
 df1<- df %>% dplyr::select(-Potability)
@@ -116,7 +127,7 @@ df1<- df %>% dplyr::select(-Potability)
 head(df1)
 ```
 
-Vamos a calcular la distancia en este caso como tenemos que nuestra varaibles son continuas utilizaremos la distancia **Euclidiana**. Cabe mencionar que también vamos a estandarizar los datos para que no tengamos algún sesgo con las variables que tengan una diferente dimensión a las demás.
+Vamos a calcular la distancia, en este caso como tenemos que nuestra variables son continuas utilizaremos la distancia **Euclidiana**. Cabe mencionar que también vamos a estandarizar los datos para que no tengamos algún sesgo, de las variables que tengan una diferente dimensión a las demás.
 
 ```{r}
 dist_df <- dist(scale(df1), method = "euclidean")
@@ -133,9 +144,9 @@ hc_ward2<-hclust(dist_df, method = "ward.D2")
 hc_centroid <- hclust(dist_df, method = "centroid")
 ```
 
-Sabemos que las mejores ligas son las ward.
+Sabemos que las mejores ligas son las Ward.
 
-Calculamos la distancia cophenetic y calculamos la correlación que tienen las ditancias 
+Calculamos la distancia cophenetic y calculamos la correlación que tienen las ditancias. 
 
 ```{r}
 d_ave <- cophenetic(hc_ave)
@@ -162,15 +173,15 @@ plot(hc_single)
 ```{r}
 plot(hc_centroid)
 ```
-Podemos observar que con los dendogramas con las ligas single y average no podemos afirmar cuantos grupos podemos tener de toda nuestra base de datos haciendo algún corte.
+Podemos observar que con los dendogramas con las ligas single y average no podemos afirmar cuántos grupos podemos tener de toda nuestra base de datos haciendo algún corte.
 
-Unas ligas que generalmente funciona "mejor" son las de ward
+Unas ligas que generalmente funcionan "mejor" son las de ward
 
 ```{r}
 plot(hc_ward)
 ```
 
-Podemos notar que en la gráfica anterior que si hacemos un corte a la altura 215 aproximadamente tenemos un total de 4 clusters y si hacemos un corte a una altura de 250 tenemos 3 clusters.
+Podemos notar en la gráfica anterior que si hacemos un corte a la altura 215 aproximadamente tenemos un total de 4 clusters y si hacemos un corte a una altura de 250 tenemos 3 clusters.
 
 A continuación veamos la grafica de Ward 2
 
@@ -178,9 +189,9 @@ A continuación veamos la grafica de Ward 2
 plot(hc_ward2)
 ```
 
-Podemos observar del dendograma anterior que si hacemos un corte con altura 45 tenemos 2 clusters, pero si hacemos un corte con una altura de 40 tenemos 4 clusters
+Podemos observar del dendograma anterior que si hacemos un corte con altura 45 tenemos 2 clusters, pero si hacemos un corte con una altura de 40 tenemos 4 clusters.
 
-Con los dendogramas anteriores no podemos hacer una afirmación de cuantos cluster podemos tener en nuestra base de datos
+Con los dendogramas anteriores no podemos hacer una afirmación de cuantos cluster podemos tener en nuestra base de datos.
 
 ```{r}
 
@@ -198,11 +209,11 @@ fviz_dend(hc_ward, cex = 0.8, k = 3,k_colors =c("#FC4E07","#a8a632", "#00AFBB") 
 
 ```
 
-Hasta el momento aún no podemos afirmar que tengamos algú númeor de clusters fijo.
+Hasta el momento aún no podemos afirmar que tengamos algún número de clusters fijo.
 
 ### AGNES
 
-Trabajemos con otro método aglomerativo llamado agnes, pero también vamos a escalar nuestros datos.
+Trabajemos con otro método aglomerativo llamado agnes, pero también vamos a estandarizar nuestros datos.
 
 ```{r}
 df1<-as.data.frame(scale(df1))
@@ -230,7 +241,7 @@ Veamos su gráfica
 plot(agnes(df1, metric = "euclidean", method = "ward"))
 ```
 
-Podemos observar que tenemos un comprtamiento similar a las dos ligas Ward anteriores. Por lo que podemos decir que si hacemos un corte con altura alrededor de 40 tenemos tres clusters
+Podemos observar que tenemos un comportamiento similar a las dos ligas Ward anteriores. Por lo que podemos decir que si hacemos un corte con altura alrededor de 40 tenemos tres clusters.
 
 ### DIANA
 
@@ -240,7 +251,7 @@ Veamos con otro método divisivo llamado DIANA
 plot(diana(df1, metric = "euclidean"))
 ```
 
-Podemos observar que con DIANA tenemos dos clusters si hacemos un corte alrededor de altura 11
+Podemos observar que con DIANA tenemos 2 clusters si hacemos un corte alrededor de altura 11
 
 Con los métodos jerarquicos podemos afirmar que tenemos entre 2 y 3 clusters
 
@@ -248,7 +259,7 @@ Ahora hagamos el análisis pero con tidymodels usando la liga promedio
 
 ```{r}
 hc_spec <- hier_clust(
-  linkage_method = "average" )%>%   ###Aquí pueden poner cualquiera de las ligas
+  linkage_method = "average" )%>%  
   set_engine("stats")
 
 hc_spec
@@ -330,7 +341,7 @@ res_hclust_ward2$fit %>% plot()
 
 ```
 
-Podemos observar que usando tidymodels con las ligas Ward son las que nos dan más claridad de cuántos clusters podemos tener en neustros datos en este caso tenemos de 2 a 3 dependiendo a que altura cortemos.
+Podemos observar que usando tidymodels con las ligas Ward son las que nos dan más claridad de cuántos clusters podemos tener en nuestros datos en este caso tenemos de 2 a 3 dependiendo a que altura cortemos.
 
 ## Métodos no Jerárquicos
 
