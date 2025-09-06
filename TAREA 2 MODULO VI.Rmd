@@ -159,7 +159,7 @@ d_centroid<-cophenetic(hc_centroid)
 cbind(cor(dist_df,d_ave),cor(dist_df,d_single),cor(dist_df,d_comp),cor(dist_df,d_ward),cor(dist_df,d_ward2), cor(dist_df, d_centroid))
 ```
 
-Podemos obeservar que las mejores ligas que mantienen la distancia son la promedio y la simple
+Podemos obeservar que las mejores ligas que mantienen la distancia son la promedio, la simple y la centroid
 
 Vamos a graficarlas
 
@@ -173,7 +173,7 @@ plot(hc_single)
 ```{r}
 plot(hc_centroid)
 ```
-Podemos observar que con los dendogramas con las ligas single y average no podemos afirmar cuántos grupos podemos tener de toda nuestra base de datos haciendo algún corte.
+Podemos observar que con los dendogramas con las ligas single, average y centroid no podemos afirmar cuántos grupos podemos tener de toda nuestra base de datos haciendo algún corte.
 
 Unas ligas que generalmente funcionan "mejor" son las de ward
 
@@ -191,21 +191,22 @@ plot(hc_ward2)
 
 Podemos observar del dendograma anterior que si hacemos un corte con altura 45 tenemos 2 clusters, pero si hacemos un corte con una altura de 40 tenemos 4 clusters.
 
-Con los dendogramas anteriores no podemos hacer una afirmación de cuantos cluster podemos tener en nuestra base de datos.
+Con los dendogramas anteriores no podemos hacer una afirmación de cuántos cluster podemos tener en nuestra base de datos.
 
+Grafiquemos el dendograma con la liga Ward la cual es mejor y más visual considerando 3 clusters.
 ```{r}
 
-fviz_dend(hc_ward, cex = 0.65, k = 3, color_labels_by_k = FALSE, rect = TRUE, rect_fill = TRUE, k_colors = "jco", rect_border = "jco", show_labels = F, main="Cluster: Liga ward dendrograma (3 grupos)")
+#fviz_dend(hc_ward, cex = 0.65, k = 3, color_labels_by_k = FALSE, rect = TRUE, rect_fill = TRUE, k_colors = "jco", rect_border = "jco", show_labels = F, main="Cluster: Liga ward dendrograma (3 grupos)")
 
-fviz_dend(hc_ward2, cex = 0.65, k = 3, color_labels_by_k = FALSE, rect = TRUE, rect_fill = TRUE, k_colors = "jco", rect_border = "jco", show_labels = F, main="Cluster: Liga ward2 dendrograma (3 grupos)")
+#fviz_dend(hc_ward2, cex = 0.65, k = 3, color_labels_by_k = FALSE, rect = TRUE, rect_fill = TRUE, k_colors = "jco", rect_border = "jco", show_labels = F, main="Cluster: Liga ward2 dendrograma (3 grupos)")
 
 fviz_dend(hc_ward, cex = 0.8, k = 3,k_colors =c("#FC4E07","#a8a632", "#00AFBB") ,type = "rectangle")
 
-fviz_dend(hc_ward, cex = 0.8, k = 3,k_colors =c("#FC4E07","#a8a632", "#00AFBB") ,type = "circular")
+#fviz_dend(hc_ward, cex = 0.8, k = 3,k_colors =c("#FC4E07","#a8a632", "#00AFBB") ,type = "circular")
 
-fviz_dend(hc_ward, cex = 0.8, k = 3,k_colors =c("#FC4E07","#a8a632", "#00AFBB") ,type = "phylogenic")
+#fviz_dend(hc_ward, cex = 0.8, k = 3,k_colors =c("#FC4E07","#a8a632", "#00AFBB") ,type = "phylogenic")
 
-fviz_dend(hc_ward, cex = 0.8, k = 3,k_colors =c("#FC4E07","#a8a632", "#00AFBB") ,type = "phylogenic", repel=TRUE)
+#fviz_dend(hc_ward, cex = 0.8, k = 3,k_colors =c("#FC4E07","#a8a632", "#00AFBB") ,type = "phylogenic", repel=TRUE)
 
 ```
 
