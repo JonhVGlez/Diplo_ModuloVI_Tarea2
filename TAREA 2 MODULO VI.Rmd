@@ -38,6 +38,9 @@ library(grid)
 library(lattice)
 library(mice)
 library(dbscan)
+library(mclust)
+library(MASS)
+library(ggplot2)
 require(igraph)
 ```
 
@@ -416,6 +419,101 @@ theme_bw()
 
 En los gráficos anteriores podemos ver que no se percibe una buena separación de los clusters. Además, tampoco se ve que los clusters estén relacionados con la potabilidad del agua, pues están casi igualmente distribuidos en ambos grupos de potabilidad.
 
+### Otra forma de explorar K-MEANS
+
+Otra alternativa es hacer una receta que incluye todas las variables de nuestro dataset, excluyendo la variable "Potability" del procesamiento.
+```{r}
+rec_df <- recipe(~.,data = df) %>%
+  update_role(Potability, new_role = "id") %>%
+  step_normalize(all_numeric_predictors()) 
+
+rec_df
+```
+Esta salida nos dice que hay 9 variables predictoras que son las que se usarán para buscar agrupar con **K-Means".
+
+Aplicamos el método. 
+```{r}
+kmeans_spec <- k_means(num_clusters = tune()) %>%
+  set_engine("stats", iter.max = 100)
+
+kmeans_spec
+```
+
+Combinamos la receta anterior y el modelo en el siguiente workflow. 
+```{r}
+kmeans_wf <- workflow(rec_df, kmeans_spec)
+kmeans_wf
+```
+
+Ahora probaremos en una malla valores para k (numero de clusters) de 1 a 9.
+```{r}
+grid <- tibble(num_clusters = 1:9)
+```
+
+Aplicamos validación cruzada y después un tuning pata determinar cuántos grupos (clústeres) son óptimos para representar la estructura de nuestros datos.
+```{r}
+df_cv <- vfold_cv(df, v = 5)
+```
+
+```{r}
+clust_num_grid <- grid_regular(num_clusters(),levels = 10)
+```
+
+```{r}
+res1 <- tune_cluster(
+  kmeans_wf,
+  resamples = df_cv,
+  grid = clust_num_grid,
+  control = control_grid(save_pred = TRUE, extract = identity),
+  metrics = cluster_metric_set(sse_within_total, sse_total, sse_ratio)
+)
+```
+
+Aquí mostramos los resultados del tuning anterior.
+```{r}
+res1_metrics <- res1 %>% collect_metrics()%>% print(n=Inf)
+```
+Esta tabla nos muestra el número de Clusters, las métricas usadas para evaluar el modelo, el promedio de la métrica sobre los folds, el error estándar de la métrica, entre otros.
+
+Ahora realizamos una gráfica llamada gráfica de "Codo" para visualizar la proporción WSS/TSS o sse_ratio que es una medida de la proporción de la varianza total para buscar un clúster óptimo. 
+```{r}
+res1_metrics %>%
+  filter(.metric == "sse_ratio") %>%
+  ggplot(aes(x = num_clusters, y = mean)) +
+  geom_point(col="darkblue",size=2) +
+  geom_line(col="red") +
+  theme_minimal() +
+  ylab("mean WSS/TSS ratio cv") +
+  xlab("Number of clusters") +
+  scale_x_continuous(breaks = 1:9)
+```
+Observando la gráfica, el “codo” parece estar cerca del cluster número 3 o 4, donde hay un cambio más notable en la pendiente. Por lo que el número óptimo de clusters probablemente esté entre 3 y 4. Más de 5 clústers no suele ser óptimo ya que a partir del cluster 5 las reducciones son cada vez menores, es decir, la curva se aplana), lo que sugiere que agregar más clusters ya no mejora significativamente.
+
+Veamos cuáles de los clústers anteriores puede ser el más óptimo.  
+```{r}
+k1 <- kmeans(df1, centers = 1, nstart = 25)
+k2 <- kmeans(df1, centers = 2, nstart = 25)
+k3 <- kmeans(df1, centers = 3, nstart = 25)
+k4 <- kmeans(df1, centers = 4, nstart = 25)
+```
+
+Calculamos la proporcion WSS/TSS para los valores anteriores.
+```{r}
+k1$tot.withinss/k1$totss; k2$tot.withinss/k2$totss; k3$tot.withinss/k3$totss; k4$tot.withinss/k4$totss
+```
+
+Creamos una visualización de los resultados del modelo anterior K-Means con k=1,2,3 y 4.  
+```{r}
+p1 <- fviz_cluster(k1, geom = "point", data = df1)+ ggtitle("k = 1")
+p2 <- fviz_cluster(k2, geom = "point", data = df1)+ ggtitle("k = 2")
+p3 <- fviz_cluster(k3, geom = "point",  data = df1) + ggtitle("k = 3")
+p4 <- fviz_cluster(k4, geom = "point",  data = df1) + ggtitle("k = 4")
+```
+
+```{r}
+grid.arrange(p1, p2, p3, p4, ncol = 4)
+```
+De la gráfica anterior concluimos que: con k=2 los grupos aún no son claramente separados, con k=3 se mejora la separación ya que algunos grupos están mejor definidos pero solamente en los extremos y con k=4 nuevamente no hay mucha claridad. Por lo que nuevamente con el modelo implementado de esta manera no existe para nuestro dataset una separación óptima. 
 
 ### DBSCAN
 
@@ -450,3 +548,66 @@ unique(hdb$cluster)
 ```
 
 Usando HDBSCAN tampoco encuentra más de un solo grupo.
+
+### IDEAL OPTICS
+El algoritmo OPTICS (siglas de Ordering Points To Identify the Clustering Structure) es un algoritmo de clustering jerárquico basado en densidad, diseñado para identificar estructuras de clusters de distintas densidades.
+
+```{r}
+datos_optics <- df1 %>%
+  scale() 
+```
+
+Aplicamos el modelo.
+```{r}
+datosOptics <- optics(datos_optics, minPts = 10)
+plot(datosOptics)
+```
+Desde esta visualización notamos no hay clusters bien definidos a simple vista. Los valles, que representarían clusters densos, no son evidentes aquí.
+Por lo tanto, este algoritmo para nuestro dataset no es viable.
+
+### ModelBasedClusteringWDBC
+Comparación de modelos de clustering usando el algoritmo de model-based clustering
+
+```{r}
+df <- df1 %>%
+  scale()
+```
+
+Explorando el numero de clusters
+```{r}
+set.seed(123)
+
+K <- 5
+models <- lapply(1:K, function(k) Mclust(df, G = k))
+bic_values <- sapply(models, function(model) BIC(model))
+bic_values
+```
+En esta salida vemos los valores del BIC (Bayesian Information Criterion) para los modelos ajustados con 1 a 5 clusters. 
+En mclust, mayor BIC = mejor modelo. En este caso el valor más alto es 83,743, correspondiente a k = 1 cluster lo que sugiere que, según el criterio BIC, no hay evidencia suficiente para justificar múltiples grupos.
+**Nota:** BIC es una métrica estadística utilizada para comparar modelos y seleccionar el que mejor se ajusta a los datos.
+
+Ahora vamos a determinar cuál modelo de mezcla gaussiana se ajusta mejor a los datos.
+```{r}
+BIC <- mclustBIC(df)
+plot(BIC)
+```
+En esta gráfica vemos que en este caso es el modelo VVI.
+
+Lo comprobamos haciendo un summary.
+```{r}
+summary(BIC)
+```
+
+```{r}
+set.seed(123)
+GMM_model <- Mclust(df, G=3)
+summary(GMM_model, parameters = TRUE)
+
+```
+
+```{r}
+plot(GMM_model, what = "classification")
+```
+De esta gráfica vemos que algunas combinaciones de variables muestran separación entre grupos, como: Solids vs Conductivity, Hardness vs Solids, ph vs Sulfate. Otras combinaciones tienen mezcla considerable de puntos, lo que indica solapamiento entre clusters.
+**Conclusion:** Hay una superposición significativa entre clusters en muchas combinaciones de variables, lo que indica que no todos los atributos separan bien los grupos. Por lo que con 3 clusters tampoco tenemos una separación óptima. 
+
