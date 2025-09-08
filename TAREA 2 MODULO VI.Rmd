@@ -456,7 +456,7 @@ En esta gráfica vemos que en este caso es el modelo VVI con tres clusters.
 
 ```{r warning=FALSE, message=FALSE, include=FALSE}
 set.seed(123)
-GMM_model <- Mclust(df, G=3)
+GMM_model <- Mclust(df1, G=3)
 summary(GMM_model, parameters = TRUE)
 ```
 
