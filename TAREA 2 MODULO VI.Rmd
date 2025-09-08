@@ -16,12 +16,9 @@ En esta tarea se abordará el análisis de una base de datos relacionada con la 
 
 La base de datos utilizada incluye atributos como pH, dureza, sólidos disueltos, cloraminas, sulfatos, conductividad eléctrica, carbono orgánico, trihalometanos y turbidez. Cada registro representa una muestra de agua, y aunque se cuenta con la variable Potability como referencia, el enfoque será completamente no supervisado.
 
-Para lograr una segmentación significativa, se emplearán métodos de reducción de dimensionalidad como PCA, t-SNE y UMAP (los cuáles fueron analizados en la tarea 1), que facilitarán la visualización y comprensión de la estructura interna de los datos. Posteriormente, se aplicarán algoritmos de clustering como K-means, DBSCAN, HDBSCAN, etc **(Agregar los que falten)**, con el fin de descubrir agrupamientos que puedan aportar valor en la clasificación de la calidad del agua.
+Para lograr una segmentación significativa, se emplearán métodos de reducción de dimensionalidad como PCA, t-SNE y UMAP (los cuáles fueron analizados en la tarea 1), que facilitarán la visualización y comprensión de la estructura interna de los datos. Posteriormente, se aplicarán algoritmos de clustering como clustering jerárquico, AGNES, DIANA, K-means, DBSCAN y Model-Based Clustering (EM), con el fin de descubrir agrupamientos que puedan aportar valor en la clasificación de la calidad del agua.
 
-
-Cargamos las librerias que vamos a utilizar
-
-```{r}
+```{r include = FALSE, warning=FALSE, message=FALSE}
 library(tidymodels)
 library(tidyverse)
 library(tidyclust)
@@ -46,67 +43,59 @@ require(igraph)
 
 Cargamos nuestras bases de datos.
 
-```{r}
+```{r warning=FALSE, message=FALSE}
 df<-read.csv("./water_potability.csv")
-
-df %>% dim()
-
-df %>% glimpse()
-
-df %>% head()
-
-df %>% summary()
+head(df)
 ```
 
-Veamos los datos faltantes 
-```{r}
-colSums(is.na(df))
-```
 Imputamos datos ya que, tenemos datos faltantes:
 
-```{r}
+```{r warning=FALSE, message=FALSE, results=FALSE}
 imputed_data <- mice(df, m = 5, method = 'pmm', maxit = 5, seed = 123)
 ```
-```{r message=FALSE, warning=FALSE}
+```{r include=FALSE, message=FALSE, warning=FALSE}
 df <- complete(imputed_data, 1)
 ```
 
-```{r}
+```{r include=FALSE, warning=FALSE, message=FALSE}
 colSums(is.na(df))
 ```
-Convertimos nuestra variable de salida en este caso es "Potability" a Factor ya que, es de tipo int
 
-```{r}
+<!-- Convertimos nuestra variable de salida en este caso es "Potability" a Factor ya que, es de tipo `int`. -->
+
+```{r warning=FALSE, message=FALSE, include=FALSE}
 df$Potability <- as.factor(df$Potability)
 ```
 
-```{r}
-table(df$Potability)
-```
+Hacemos un gráfico de nuestra variable "Potability".
 
-Hacemos un gráfico de nuestra variable "Potability" 
-```{r}
-df %>% glimpse()
-
+```{r echo=FALSE, warning=FALSE, message=FALSE, fig.align="center", fig.width = 8, fig.height=4}
 df %>%
   group_by(Potability) %>%
   summarise (n = n()) %>%
   mutate(prop = n / sum(n)) %>%
 ggplot(aes(df,x = Potability, y = n)) +
-    geom_col(fill = c("#CC0033", "#e319dc")) +
-    geom_text(aes(label = paste0(n, " | ", signif(n / nrow(df) * 100, digits = 4), '%')), nudge_y = 10) + ggtitle("Porcentajes de resultados de biopsia") +
-    theme_gray()
+    geom_col(fill = c("#ec7d15", "#10b9ec")) +
+    geom_text(aes(label = paste0(n, " | ", signif(n / nrow(df) * 100, digits = 4), '%')), nudge_y = 10) + ggtitle("Porcentajes de agua potable y no potable") +
+    theme_minimal()
 ```
-```{r}
-ggpairs(df, mapping = aes(fill = Potability, color = Potability, alpha = 0.5),columns = seq(1,9), lower = "blank", upper = "blank") +
-scale_fill_manual(values = c("0" = "#ec7d15", "1" = "#10b9ec")) + labs(title = "Comparación por gráficos de dispersión") + 
+
+Podemos observar que hay 1998 registros que no son aptos para el consumo humano y 1278 registros sí son aptos para el consumo humano, es decir, el **60.99% de registros no son aptos para el consumo humano y un 39.01% sí lo son**.
+
+**Gráficos de dispersión y densidad:**
+
+```{r fig.align = "center",message=FALSE, warning=FALSE, echo = FALSE, fig.width = 12, fig.height=8}
+ggpairs(df, mapping = aes(color = Potability, alpha = 0.5),columns = seq(1,9), upper = "blank") +
+scale_colour_manual(values = c("0" = "#ec7d15", "1" = "#10b9ec")) + labs(title = "Comparación por gráficos de dispersión") + 
 theme(
   axis.text.x = element_text(size = 4),
   axis.text.y = element_text(size = 4)
 )
 ```
 
-```{r}
+Veamos la estructura de correlación de Spearman que tienen nuestras variables.
+
+```{r fig.align = "center",message=FALSE, warning=FALSE, echo=FALSE, fig.width = 8, fig.height=4}
 cor1_data<-cor(df[,-10],method="spearman")
 
 ggcorrplot::ggcorrplot(corr = cor1_data,
@@ -116,29 +105,34 @@ ggcorrplot::ggcorrplot(corr = cor1_data,
                        lab_size = 3) +
                        labs(title = "Correlación entre las variables")
 ```
-Vamos aplicar los clusters vistos en clases
+
+Hay que destacar que, como se observa en los gráficos de dispersión y densidad, en cada par de variable parece no haber diferencia entre los grupos de potabilidad pues las densidades son muy similares y los puntos en los gráficos de dispersión están muy mezclados. 
+
+Marginalmente no se puede observar grupos con claridad pero tal vez tomando todas las variables sí se puedan encontrar con los métodos presentados más adelante.
 
 ## Métodos Jerárquicos
 
-Primero comenzamos con los **Métodos Jerarquicos** 
+Primero comenzamos con los **Métodos Jerárquicos**.
+Así se ven las variables estandarizadas que usaremos para formar clusters: 
 
-Para eso vamos a eliminar nuestra variable de salida en este caso la variable "Potability"
-
-```{r}
+```{r warning=FALSE, message=FALSE, include=FALSE}
 df1<- df %>% dplyr::select(-Potability)
+df1 <- as.data.frame(scale(df1))
+```
 
+```{r warning=FALSE, message=FALSE}
 head(df1)
 ```
 
-Vamos a calcular la distancia, en este caso como tenemos que nuestra variables son continuas utilizaremos la distancia **Euclidiana**. Cabe mencionar que también vamos a estandarizar los datos para que no tengamos algún sesgo, de las variables que tengan una diferente dimensión a las demás.
+Vamos a calcular la distancia.
+Como las variables son continuas utilizaremos la distancia **Euclidiana**. Además, la distancia euclidiana funciona mejor para datos normales como los nuestros (ver gráficas de densidad anteriores).
 
-```{r}
-dist_df <- dist(scale(df1), method = "euclidean")
+```{r warning=FALSE, message=FALSE}
+dist_df <- dist(df1, method = "euclidean")
 ```
 
-Calculamos nuestras ligas:
-
-```{r}
+Calculamos las distancias entre clusters con las ligas promedio, simple, completa, Ward, Ward cuadrada y centroide:
+```{r warning=FALSE, message=FALSE}
 hc_ave <- hclust(dist_df, method = "average")
 hc_single<-hclust(dist_df, method = "single")
 hc_comp<-hclust(dist_df, method = "complete")
@@ -147,81 +141,68 @@ hc_ward2<-hclust(dist_df, method = "ward.D2")
 hc_centroid <- hclust(dist_df, method = "centroid")
 ```
 
-Sabemos que las mejores ligas son las Ward.
-
 Calculamos la distancia cophenetic y calculamos la correlación que tienen las ditancias. 
 
-```{r}
+```{r warning=FALSE, message=FALSE}
 d_ave <- cophenetic(hc_ave)
 d_single <- cophenetic(hc_single)
 d_comp<- cophenetic(hc_comp)
 d_ward<- cophenetic(hc_ward)
 d_ward2<-cophenetic(hc_ward2)
 d_centroid<-cophenetic(hc_centroid)
-
-cbind(cor(dist_df,d_ave),cor(dist_df,d_single),cor(dist_df,d_comp),cor(dist_df,d_ward),cor(dist_df,d_ward2), cor(dist_df, d_centroid))
 ```
 
-Podemos obeservar que las mejores ligas que mantienen la distancia son la promedio, la simple y la centroid
-
-Vamos a graficarlas
-
-```{r}
-plot(hc_ave)
-```
-```{r}
-plot(hc_single)
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+cbind("Promedio" = cor(dist_df,d_ave), "Simple" = cor(dist_df,d_single), "Completa" = cor(dist_df,d_comp), "Ward" = cor(dist_df,d_ward),"Ward D2" = cor(dist_df,d_ward2), "Centroide" = cor(dist_df, d_centroid))
 ```
 
-```{r}
-plot(hc_centroid)
+Podemos obeservar que las mejores ligas que mantienen la distancia son la promedio, la simple y la centroide.
+
+```{r warning=FALSE, message=FALSE, echo =FALSE, fig.width=7, fig.height=4, fig.align="center"}
+plot(hc_ave, main = "Liga Promedio: Dendrograma", xlab = "Distancia", ylab = "Altura")
 ```
-Podemos observar que con los dendogramas con las ligas single, average y centroid no podemos afirmar cuántos grupos podemos tener de toda nuestra base de datos haciendo algún corte.
+```{r warning=FALSE, message=FALSE, echo =FALSE, fig.width=7, fig.height=4, fig.align="center"}
+plot(hc_single, main = "Liga Simple: Dendrograma", xlab = "Distancia", ylab = "Altura")
+```
 
-Unas ligas que generalmente funcionan "mejor" son las de ward
+```{r warning=FALSE, message=FALSE, echo =FALSE, fig.width=7, fig.height=4, fig.align="center"}
+plot(hc_centroid, main = "Liga Centroide: Dendrograma", xlab = "Distancia", ylab = "Altura")
+```
 
-```{r}
-plot(hc_ward)
+Podemos observar que con los dendrogramas con las ligas simple, promedio y centroide no es claro cuántos grupos podemos tener de toda nuestra base de datos haciendo algún corte.
+
+Las ligas que funcionan mejor son las de Ward.
+
+```{r warning=FALSE, message=FALSE, echo =FALSE, fig.width=7, fig.height=4, fig.align="center"}
+plot(hc_ward, main = "Liga Ward: Dendrograma", xlab = "Distancia", ylab = "Altura")
 ```
 
 Podemos notar en la gráfica anterior que si hacemos un corte a la altura 215 aproximadamente tenemos un total de 4 clusters y si hacemos un corte a una altura de 250 tenemos 3 clusters.
 
-A continuación veamos la grafica de Ward 2
+A continuación veamos la grafica de Ward D2:
 
-```{r}
-plot(hc_ward2)
+```{r warning=FALSE, message=FALSE, echo =FALSE, fig.width=7, fig.height=4, fig.align="center"}
+plot(hc_ward2, main = "Liga Ward D2: Dendrograma", xlab = "Distancia", ylab = "Altura")
 ```
 
-Podemos observar del dendograma anterior que si hacemos un corte con altura 45 tenemos 2 clusters, pero si hacemos un corte con una altura de 40 tenemos 4 clusters.
+Podemos observar del dendrograma anterior que si hacemos un corte con altura 45 tenemos 2 clusters, pero si hacemos un corte con una altura de 40 tenemos 4 clusters.
 
-Con los dendogramas anteriores no podemos hacer una afirmación de cuántos cluster podemos tener en nuestra base de datos.
+Con los dendrogramas anteriores no podemos hacer una afirmación de cuántos cluster podemos tener en nuestra base de datos.
 
-Grafiquemos el dendograma con la liga Ward la cual es mejor y más visual considerando 3 clusters.
-```{r}
 
-#fviz_dend(hc_ward, cex = 0.65, k = 3, color_labels_by_k = FALSE, rect = TRUE, rect_fill = TRUE, k_colors = "jco", rect_border = "jco", show_labels = F, main="Cluster: Liga ward dendrograma (3 grupos)")
+Ahora revisaremos el estadístico **GAP** para tener otra forma de confirmar el número de clusters que podrían encontrarse en los datos. 
 
-#fviz_dend(hc_ward2, cex = 0.65, k = 3, color_labels_by_k = FALSE, rect = TRUE, rect_fill = TRUE, k_colors = "jco", rect_border = "jco", show_labels = F, main="Cluster: Liga ward2 dendrograma (3 grupos)")
-
-fviz_dend(hc_ward, cex = 0.8, k = 3,k_colors =c("#FC4E07","#a8a632", "#00AFBB") ,type = "rectangle")
-
-#fviz_dend(hc_ward, cex = 0.8, k = 3,k_colors =c("#FC4E07","#a8a632", "#00AFBB") ,type = "circular")
-
-#fviz_dend(hc_ward, cex = 0.8, k = 3,k_colors =c("#FC4E07","#a8a632", "#00AFBB") ,type = "phylogenic")
-
-#fviz_dend(hc_ward, cex = 0.8, k = 3,k_colors =c("#FC4E07","#a8a632", "#00AFBB") ,type = "phylogenic", repel=TRUE)
-
+```{r message=FALSE, warning=FALSE, echo=FALSE, fig.width=7, fig.height=4, fig.align="center"}
+fviz_nbclust(df1, hcut, method = "gap_stat", hc_func = "hclust", hc_method ="ward.D", hc_metric= "euclidean", nboot= 25)+labs(x ="Número de clusters")+labs(y="GAP")+labs(title = "Cluster Jerárquico: Número óptimo de clusters")
 ```
 
-Hasta el momento aún no podemos afirmar que tengamos algún número de clusters fijo.
+Según el estadístico GAP, el número de cluster óptimo es 1, es decir, no encuentra más de un solo grupo en los datos. Este resultado está relacionado con lo mostrado en los siguientes métodos explorados.
 
 ### AGNES
 
-Trabajemos con otro método aglomerativo llamado agnes, pero también vamos a estandarizar nuestros datos.
+Trabajemos con otro método aglomerativo llamado AGNES.
 
-```{r}
-df1<-as.data.frame(scale(df1))
-
+```{r warning=FALSE, message=FALSE}
 ac_metric <- list(
   complete_ac = agnes(df1, metric = "euclidean", method = "complete")$ac,
   average_ac = agnes(df1, metric = "euclidean", method = "average")$ac,
@@ -232,16 +213,11 @@ ac_metric <- list(
 ac_metric
 ```
 
-```{r}
-df1 |> head()
-summary(df1) # Verificar que nuestros datos esten escalados
-```
-
 Podemos observar que la mejor liga con el método agnes es la Ward
 
-Veamos su gráfica
+Veamos su gráfica:
 
-```{r}
+```{r warning=FALSE, message=FALSE, echo=FALSE, fig.width=7, fig.height=4, fig.align="center"}
 plot(agnes(df1, metric = "euclidean", method = "ward"))
 ```
 
@@ -249,121 +225,37 @@ Podemos observar que tenemos un comportamiento similar a las dos ligas Ward ante
 
 ### DIANA
 
-Veamos con otro método divisivo llamado DIANA
+Veamos con otro método divisivo llamado DIANA.
 
-```{r}
-plot(diana(df1, metric = "euclidean"))
+```{r warning=FALSE, message=FALSE}
+diana_clus <- diana(df1, metric = "euclidean")
 ```
 
-Podemos observar que con DIANA tenemos 2 clusters si hacemos un corte alrededor de altura 11
-
-Con los métodos jerarquicos podemos afirmar que tenemos entre 2 y 3 clusters
-
-Ahora hagamos el análisis pero con tidymodels usando la liga promedio
-
-```{r}
-hc_spec <- hier_clust(
-  linkage_method = "average" )%>%  
-  set_engine("stats")
-
-hc_spec
-
-hclust_fit <- tidyclust::fit(hc_spec, ~., df1)
-
-hclust_fit 
-
-hclust_fit$fit %>% plot()
-
-```
-Observemos que no es claro
-
-Hagamos el analísis pero sin declarar alguna liga
-
-```{r}
-hclust_spec <- hier_clust() %>%
-               set_engine("stats")
-
-hclust_fit1 <- tidyclust::fit(hclust_spec, ~., df1)
-
-hclust_fit1 %>%
-  extract_centroids(num_clusters = 3)%>%print(Inf)
-
-hclust_fit1$fit %>% plot()
-
-```
-Observemos que tampoco es tan claro como las ligas Ward, en este caso la gráfica anterior utiliza la liga completa
-
-Veamos las gráficas pero ahora declarando las ligas que usamos anteriormente
-
-**Liga Completa**
-```{r}
-res_hclust_complete <- hier_clust(linkage_method = "complete") %>%
-  tidyclust::fit(~., data = df1)
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.width=7, fig.height=4, fig.align="center"}
+plot(diana_clus)
 ```
 
+Podemos observar que con DIANA tenemos 2 clusters si hacemos un corte alrededor de altura 11.
 
-```{r}
-res_hclust_complete$fit %>% plot()
-```
-
-
-**Liga Promedio**
-
-```{r}
-res_hclust_average <- hier_clust(linkage_method = "average") %>%
-  tidyclust::fit(~., data = df1)
-
-res_hclust_average$fit %>% plot()
-```
-
-**Liga Simple**
-
-```{r}
-res_hclust_single <- hier_clust(linkage_method = "single") %>%
-  tidyclust::fit(~., data = df1)
-
-res_hclust_single$fit %>% plot()
-```
-
-**Liga Ward D**
-
-```{r}
-res_hclust_ward <- hier_clust(linkage_method = "ward.D") %>%
-  tidyclust::fit(~., data = df1)
-
-res_hclust_ward$fit %>% plot()
-```
-
-**Liga Ward D2**
-
-
-```{r}
-res_hclust_ward2 <- hier_clust(linkage_method = "ward.D2") %>%
-  tidyclust::fit(~., data = df1)
-
-res_hclust_ward2$fit %>% plot()
-
-```
-
-Podemos observar que usando tidymodels con las ligas Ward son las que nos dan más claridad de cuántos clusters podemos tener en nuestros datos en este caso tenemos de 2 a 3 dependiendo a que altura cortemos.
+Con los métodos jerárquicos podemos afirmar que tenemos entre 2 y 3 clusters.
 
 ## Métodos no Jerárquicos
 
 ### K-MEANS
 
-Primero veremos el estadístico GAP para ver el número de clusters que puede ser adecuado.
+Primero veremos el estadístico **GAP** para ver el número de clusters que puede ser adecuado.
 
-```{r}
-fviz_nbclust(df1, kmeans, method = "gap_stat")+labs(x ="Número de clusters")+labs(y="GAP")+labs(title = "Número óptimo de clusters")
+```{r warning=FALSE, message=FALSE, echo=FALSE, fig.width=7, fig.height=4, fig.align="center"}
+fviz_nbclust(df1, kmeans, method = "gap_stat")+labs(x ="Número de clusters")+labs(y="GAP")+labs(title = "K-Means: Número óptimo de clusters")
 ```
 
 Con K-Means indica que el número óptimo de clusters es 1, es decir que no encuentra más de un cluster como óptimo.
 
-(Aún así) Para el método de K-Means probaremos con valores de K de 2, 3 y 4, y mediante validación cruzada escogeremos el valor de K óptimo.
+(Aún así) Para el método de K-Means probaremos con valores de K de 2, 3 y 4, y mediante validación cruzada de 25 iteraciones escogeremos el valor óptimo de K.
 
-```{r}
+```{r warning=FALSE, message=FALSE, echo=FALSE}
 dfTask <- makeClusterTask(data = df1)
-listLearners("cluster")$class
+# listLearners("cluster")$class
 
 kMeans <- makeLearner("cluster.kmeans",par.vals = list(iter.max = 2500, nstart = 25))
 
@@ -383,10 +275,10 @@ control = gridSearch,
 measures = list(db, G1))
 ```
 
-```{r}
+```{r warning=FALSE, message=FALSE, echo=FALSE, fig.width=7, fig.height=4, fig.align="center"}
 set.seed(123)
 kMeansTuningData <- generateHyperParsEffectData(tunedK)
-kMeansTuningData$data
+# kMeansTuningData$data
 gatheredTuningData <- gather(kMeansTuningData$data,
 key = "Metric",
 value = "Value",
@@ -401,65 +293,62 @@ theme_bw()
 
 En la gráfica anterior vemos que el mejor modelo es con K = 4.
 
-```{r}
+```{r warning=FALSE, message=FALSE,echo=FALSE, fig.width = 12, fig.height=8}
 set.seed(123)
 tunedKMeans <- setHyperPars(kMeans, par.vals = tunedK$x)
 tunedKMeansModel <- train(tunedKMeans, dfTask)
 kMeansModelData <- getLearnerModel(tunedKMeansModel)
-kMeansModelData$iter
-
-tunedKMeans
+# kMeansModelData$iter
+# tunedKMeans
 
 df_clus <- df %>% mutate(kMeansCluster = as.factor(kMeansModelData$cluster))
-table(df_clus$kMeansCluster)
+# table(df_clus$kMeansCluster)
 
 ggpairs(df_clus, aes(col = kMeansCluster),upper = list(continuous = "density")) +
-theme_bw()
+theme_minimal()
 ```
 
 En los gráficos anteriores podemos ver que no se percibe una buena separación de los clusters. Además, tampoco se ve que los clusters estén relacionados con la potabilidad del agua, pues están casi igualmente distribuidos en ambos grupos de potabilidad.
 
-### Otra forma de explorar K-MEANS
-
-Otra alternativa es hacer una receta que incluye todas las variables de nuestro dataset, excluyendo la variable "Potability" del procesamiento.
-```{r}
+<!-- Otra forma de explorar K-Means: -->
+```{r warning=FALSE, message=FALSE, include=FALSE}
 rec_df <- recipe(~.,data = df) %>%
   update_role(Potability, new_role = "id") %>%
-  step_normalize(all_numeric_predictors()) 
+  step_normalize(all_numeric_predictors())
 
 rec_df
 ```
-Esta salida nos dice que hay 9 variables predictoras que son las que se usarán para buscar agrupar con **K-Means".
+<!-- Esta salida nos dice que hay 9 variables predictoras que son las que se usarán para buscar agrupar con **K-Means".
 
-Aplicamos el método. 
-```{r}
+Aplicamos el método.  -->
+```{r warning=FALSE, message=FALSE, include=FALSE}
 kmeans_spec <- k_means(num_clusters = tune()) %>%
   set_engine("stats", iter.max = 100)
 
 kmeans_spec
 ```
 
-Combinamos la receta anterior y el modelo en el siguiente workflow. 
-```{r}
+<!-- Combinamos la receta anterior y el modelo en el siguiente workflow.  -->
+```{r warning=FALSE, message=FALSE, include=FALSE}
 kmeans_wf <- workflow(rec_df, kmeans_spec)
 kmeans_wf
 ```
 
-Ahora probaremos en una malla valores para k (numero de clusters) de 1 a 9.
-```{r}
+<!-- Ahora probaremos en una malla valores para k (numero de clusters) de 1 a 9. -->
+```{r warning=FALSE, message=FALSE, include=FALSE}
 grid <- tibble(num_clusters = 1:9)
 ```
 
-Aplicamos validación cruzada y después un tuning pata determinar cuántos grupos (clústeres) son óptimos para representar la estructura de nuestros datos.
-```{r}
+<!-- Aplicamos validación cruzada y después un tuning pata determinar cuántos grupos (clústeres) son óptimos para representar la estructura de nuestros datos. -->
+```{r warning=FALSE, message=FALSE, include=FALSE}
 df_cv <- vfold_cv(df, v = 5)
 ```
 
-```{r}
+```{r warning=FALSE, message=FALSE, include=FALSE}
 clust_num_grid <- grid_regular(num_clusters(),levels = 10)
 ```
 
-```{r}
+```{r warning=FALSE, message=FALSE, include=FALSE}
 res1 <- tune_cluster(
   kmeans_wf,
   resamples = df_cv,
@@ -469,14 +358,14 @@ res1 <- tune_cluster(
 )
 ```
 
-Aquí mostramos los resultados del tuning anterior.
-```{r}
+<!-- Aquí mostramos los resultados del tuning anterior. -->
+```{r warning=FALSE, message=FALSE, include=FALSE}
 res1_metrics <- res1 %>% collect_metrics()%>% print(n=Inf)
 ```
-Esta tabla nos muestra el número de Clusters, las métricas usadas para evaluar el modelo, el promedio de la métrica sobre los folds, el error estándar de la métrica, entre otros.
+<!-- Esta tabla nos muestra el número de Clusters, las métricas usadas para evaluar el modelo, el promedio de la métrica sobre los folds, el error estándar de la métrica, entre otros. -->
 
-Ahora realizamos una gráfica llamada gráfica de "Codo" para visualizar la proporción WSS/TSS o sse_ratio que es una medida de la proporción de la varianza total para buscar un clúster óptimo. 
-```{r}
+Ahora realizamos una gráfica de codo para visualizar la proporción WSS/TSS o SSE Ratio que es una medida de la proporción de la varianza total para buscar un clúster óptimo. 
+```{r warning=FALSE, message=FALSE, echo=FALSE, fig.width=7, fig.height=4, fig.align="center"}
 res1_metrics %>%
   filter(.metric == "sse_ratio") %>%
   ggplot(aes(x = num_clusters, y = mean)) +
@@ -487,38 +376,40 @@ res1_metrics %>%
   xlab("Number of clusters") +
   scale_x_continuous(breaks = 1:9)
 ```
-Observando la gráfica, el “codo” parece estar cerca del cluster número 3 o 4, donde hay un cambio más notable en la pendiente. Por lo que el número óptimo de clusters probablemente esté entre 3 y 4. Más de 5 clústers no suele ser óptimo ya que a partir del cluster 5 las reducciones son cada vez menores, es decir, la curva se aplana), lo que sugiere que agregar más clusters ya no mejora significativamente.
+
+Observando la gráfica, el “codo” parece estar cerca del cluster número 1 a 4, donde hay un cambio más notable en la pendiente. Por lo que el número óptimo de clusters probablemente esté entre estos números. Más de 5 clústers no suele ser óptimo ya que a partir del cluster 5 las reducciones son cada vez menores, es decir, la curva se aplana, lo que sugiere que agregar más clusters ya no mejora significativamente.
 
 Veamos cuáles de los clústers anteriores puede ser el más óptimo.  
-```{r}
+```{r warning=FALSE, message=FALSE, include=FALSE}
 k1 <- kmeans(df1, centers = 1, nstart = 25)
 k2 <- kmeans(df1, centers = 2, nstart = 25)
 k3 <- kmeans(df1, centers = 3, nstart = 25)
 k4 <- kmeans(df1, centers = 4, nstart = 25)
 ```
 
-Calculamos la proporcion WSS/TSS para los valores anteriores.
-```{r}
+<!-- Calculamos la proporcion WSS/TSS para los valores anteriores. -->
+```{r warning=FALSE, message=FALSE, include=FALSE}
 k1$tot.withinss/k1$totss; k2$tot.withinss/k2$totss; k3$tot.withinss/k3$totss; k4$tot.withinss/k4$totss
 ```
 
 Creamos una visualización de los resultados del modelo anterior K-Means con k=1,2,3 y 4.  
-```{r}
+```{r warning=FALSE, message=FALSE, include=FALSE}
 p1 <- fviz_cluster(k1, geom = "point", data = df1)+ ggtitle("k = 1")
 p2 <- fviz_cluster(k2, geom = "point", data = df1)+ ggtitle("k = 2")
 p3 <- fviz_cluster(k3, geom = "point",  data = df1) + ggtitle("k = 3")
 p4 <- fviz_cluster(k4, geom = "point",  data = df1) + ggtitle("k = 4")
 ```
 
-```{r}
+```{r warning=FALSE, message=FALSE, echo=FALSE, fig.width=12, fig.height= 7}
 grid.arrange(p1, p2, p3, p4, ncol = 4)
 ```
+
 De la gráfica anterior concluimos que: con k=2 los grupos aún no son claramente separados, con k=3 se mejora la separación ya que algunos grupos están mejor definidos pero solamente en los extremos y con k=4 nuevamente no hay mucha claridad. Por lo que nuevamente con el modelo implementado de esta manera no existe para nuestro dataset una separación óptima. 
 
 ### DBSCAN
 
 Para el parámetro del número de vecinos cercanos tomaremos 10 por tener 9 variables del modelo.
-```{r}
+```{r warning=FALSE, message=FALSE, echo=FALSE, fig.width=7, fig.height=4, fig.align="center"}
 kNNdistplot(df1, k =10)
 abline(h=c(2, 3),lty=2,col="blue")
 ```
@@ -527,87 +418,58 @@ En la gráfica anterior podemos ver que un intervalo donde podemos ver el punto 
 
 Si calculamos los cuantiles, vemos que el 95% de las distancias quedamos debajo de 2.71. Por lo que un valor adecuado de epsilón podría ser 3.
 
-```{r}
+```{r warning=FALSE, message=FALSE}
 quantile(kNNdist(df1, k = 10), c(0.70,0.75, 0.8, 0.9, 0.95, 0.99, 0.995, 0.999))
 ```
 
-```{r}
-df_clus <- dbscan(df, eps = 3, minPts = 10)
+```{r warning=FALSE, message=FALSE}
+df_clus <- dbscan(df1, eps = 3, minPts = 10)
 df_clus
 ```
 
 Los resultados indican 10 observaciones de ruido y el resto pertenece a un solo grupo.
 
-### HDBSCAN
 
-```{r}
-hdb <- hdbscan(df1, minPts = 10) #con minPts = 20 también solo encuentra un grupo
-unique(hdb$cluster)
+### Model-Based Clustering
 
-# datos_hdbscan <- data.frame(df, cluster = as.factor(hdb$cluster))
-```
+Explorando el número de clusters:
 
-Usando HDBSCAN tampoco encuentra más de un solo grupo.
-
-### IDEAL OPTICS
-El algoritmo OPTICS (siglas de Ordering Points To Identify the Clustering Structure) es un algoritmo de clustering jerárquico basado en densidad, diseñado para identificar estructuras de clusters de distintas densidades.
-
-```{r}
-datos_optics <- df1 %>%
-  scale() 
-```
-
-Aplicamos el modelo.
-```{r}
-datosOptics <- optics(datos_optics, minPts = 10)
-plot(datosOptics)
-```
-Desde esta visualización notamos no hay clusters bien definidos a simple vista. Los valles, que representarían clusters densos, no son evidentes aquí.
-Por lo tanto, este algoritmo para nuestro dataset no es viable.
-
-### ModelBasedClusteringWDBC
-Comparación de modelos de clustering usando el algoritmo de model-based clustering
-
-```{r}
-df <- df1 %>%
-  scale()
-```
-
-Explorando el numero de clusters
-```{r}
+```{r warning=FALSE, message=FALSE}
 set.seed(123)
-
 K <- 5
-models <- lapply(1:K, function(k) Mclust(df, G = k))
+models <- lapply(1:K, function(k) Mclust(df1, G = k))
 bic_values <- sapply(models, function(model) BIC(model))
 bic_values
 ```
-En esta salida vemos los valores del BIC (Bayesian Information Criterion) para los modelos ajustados con 1 a 5 clusters. 
-En mclust, mayor BIC = mejor modelo. En este caso el valor más alto es 83,743, correspondiente a k = 1 cluster lo que sugiere que, según el criterio BIC, no hay evidencia suficiente para justificar múltiples grupos.
-**Nota:** BIC es una métrica estadística utilizada para comparar modelos y seleccionar el que mejor se ajusta a los datos.
+
+En esta salida vemos los valores del BIC (Bayesian Information Criterion) para los modelos ajustados con 1 a 5 clusters.
+
+En mclust, el mejor modelo es aquel con el BIC mayor. En este caso el valor más alto es 83,743, correspondiente a k = 1 cluster lo que sugiere que, según el criterio BIC, no hay evidencia suficiente para justificar múltiples grupos.
 
 Ahora vamos a determinar cuál modelo de mezcla gaussiana se ajusta mejor a los datos.
-```{r}
-BIC <- mclustBIC(df)
+
+```{r warning=FALSE, message=FALSE, echo=FALSE}
+BIC <- mclustBIC(df1)
 plot(BIC)
 ```
-En esta gráfica vemos que en este caso es el modelo VVI.
+En esta gráfica vemos que en este caso es el modelo VVI con tres clusters.
 
-Lo comprobamos haciendo un summary.
-```{r}
-summary(BIC)
-```
-
-```{r}
+```{r warning=FALSE, message=FALSE, include=FALSE}
 set.seed(123)
 GMM_model <- Mclust(df, G=3)
 summary(GMM_model, parameters = TRUE)
-
 ```
 
-```{r}
+```{r warning=FALSE, message=FALSE, echo=FALSE, fig.width=12, fig.height=8}
 plot(GMM_model, what = "classification")
 ```
-De esta gráfica vemos que algunas combinaciones de variables muestran separación entre grupos, como: Solids vs Conductivity, Hardness vs Solids, ph vs Sulfate. Otras combinaciones tienen mezcla considerable de puntos, lo que indica solapamiento entre clusters.
-**Conclusion:** Hay una superposición significativa entre clusters en muchas combinaciones de variables, lo que indica que no todos los atributos separan bien los grupos. Por lo que con 3 clusters tampoco tenemos una separación óptima. 
 
+De esta gráfica vemos que algunas combinaciones de variables muestran separación entre grupos, como: Solids vs Conductivity, Hardness vs Solids, ph vs Sulfate. Otras combinaciones tienen mezcla considerable de puntos, lo que indica solapamiento entre clusters.
+
+## Conclusión
+
+Si bien con los métodos presentados (a excepción de DBSCAN) es posible generar clusters, hay una superposición significativa entre los mismos en muchas combinaciones de variables, lo que indica que no todos los atributos separan bien los grupos.
+
+Además, las variables no presentan una estructura adecuada para poderlas separar en grupos de potabilidad y tampoco en clusters. 
+
+Concluimos que con ninguno de los métodos es posible generar clusters adecuados.
